@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a new permission panel or improvement to the inspector.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What would you like to see?
+      description: >
+        E.g. a new permission to add to the catalog, a clearer explanation
+        for an existing panel, or a UI improvement to the dashboard.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this useful?
+      description: What risk or behavior would this help demonstrate or clarify?
+    validations:
+      required: false

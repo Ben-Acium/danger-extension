@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in the inspector doesn't behave as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Since this is a
+        demo-only extension, please double-check the "Out of scope" section
+        of [SECURITY.md](../../SECURITY.md) first — a permission doing what
+        it's documented to do isn't a bug.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you observe instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Which panel/permission, and what did you click?
+      placeholder: |
+        1. Load the extension unpacked
+        2. Open the dashboard, select the "..." permission panel
+        3. Click "..."
+    validations:
+      required: true
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      placeholder: e.g. 128.0.6613.84
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Ubuntu 22.04, macOS 14, ChromeOS
+    validations:
+      required: false

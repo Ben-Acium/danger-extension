@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Permission Library Inspector</title>
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<nav id="nav">
+  <div class="brand">Permission Library Inspector</div>
+  <div class="hint">Every permission from the internal risk catalog, each wired to a real call against your own
+    browser. Nothing leaves this machine. ChromeOS-only / enterprise-managed APIs are marked unavailable rather
+    than faked.</div>
+  <input id="search-box" type="text" placeholder="Filter permissions…">
+  <button class="navbtn active" data-target="overview">Overview</button>
+  <div id="nav-groups"></div>
+</nav>
+
+<main id="main">
+  <section id="overview" class="panel active">
+    <h1>Overview</h1>
+    <p>This extension is loaded with the full permission catalog you use to grade extension risk — Critical,
+       High, Medium, and Standard — so you can see exactly what each one puts within reach, using your own
+       browser, on your own machine.</p>
+    <p>Nothing here calls out to a network endpoint. Every panel reads local browser state on demand when you
+       click a button. A few permissions (ChromeOS device APIs, enterprise-managed APIs, platform-app-only APIs)
+       won't do anything outside a managed ChromeOS environment — those panels say so plainly instead of faking
+       a result.</p>
+    <p>Pick a permission from the left to see what it exposes. Use the filter box to jump straight to one.</p>
+  </section>
+  <div id="panels"></div>
+</main>
+
+<script src="dashboard.js"></script>
+</body>
+</html>
