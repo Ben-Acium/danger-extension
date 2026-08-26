@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Permission Library Inspector",
+  "name": "Danger Extension",
   "description": "DEMO ONLY — not for distribution. Every permission in the internal risk catalog (Critical/High/Medium/Standard), each wired to a live call against your own browser, so you can see exactly what it unlocks.",
   "version": "1.0.0",
   "permissions": [

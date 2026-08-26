@@ -16,7 +16,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: "permission-library-demo",
-      title: 'Permission Library Inspector: inspect this',
+      title: 'Danger Extension: inspect this',
       contexts: ["all"]
     });
   });

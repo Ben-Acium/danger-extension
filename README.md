@@ -1,4 +1,4 @@
-# Permission Library Inspector
+# Danger Extension
 
 **DEMO ONLY — not for distribution.**
 
@@ -56,4 +56,3 @@ not a browser extension meant for general use.
 ## License
 
 MIT — see [LICENSE](LICENSE).
-# danger-extension
