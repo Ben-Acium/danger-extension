@@ -1,0 +1,22 @@
+# Extension signing keys — never commit these
+*.pem
+*.crx
+key.json
+
+# Secrets / local env
+.env
+.env.*
+*.local
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Node (in case tooling is added later)
+node_modules/
+npm-debug.log*
