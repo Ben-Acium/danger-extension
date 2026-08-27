@@ -14,6 +14,7 @@ body {
   padding: 16px 12px;
   height: 100vh;
   overflow-y: auto;
+  overflow-x: hidden;
   position: sticky;
   top: 0;
 }
@@ -36,6 +37,7 @@ body {
   cursor: pointer;
   margin-bottom: 1px;
 }
+.navbtn span { min-width: 0; overflow-wrap: break-word; }
 .navbtn:hover { background: #2a2f37; color: #fff; }
 .navbtn.active { background: #3a5ba0; color: #fff; }
 
@@ -125,6 +127,7 @@ button.load:disabled { opacity: 0.6; cursor: default; }
   resize: both;
 }
 .out:empty::before { content: "No data loaded yet."; color: #9aa1ab; }
+.out pre { white-space: pre-wrap; word-break: break-all; margin: 4px 0 12px; }
 .out img { max-width: 100%; border-radius: 6px; border: 1px solid #e0e2e6; }
 
 table { border-collapse: collapse; width: 100%; table-layout: fixed; }

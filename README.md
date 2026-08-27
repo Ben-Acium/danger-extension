@@ -10,9 +10,18 @@ anyone's word for it.
 
 Nothing in this extension calls out to a network endpoint. Every panel reads
 local browser state on demand, only when you click a button, on your own
-machine. A few permissions (ChromeOS device APIs, enterprise-managed APIs,
+machine. A couple of panels display an inert example of the one extra line
+of code it would take to ship captured data off-device (e.g. a `fetch()` to
+an attacker's server) — that line is shown as text only and is never
+executed. A few permissions (ChromeOS device APIs, enterprise-managed APIs,
 platform-app-only APIs) are marked as unavailable outside a managed ChromeOS
 environment instead of faking a result.
+
+## Screenshots
+
+| Catalog overview | Panel detail | Live call |
+|---|---|---|
+| ![Permission catalog overview](screenshots/overview.png) | ![Cookies panel, a Critical-risk permission](screenshots/cookies-panel.png) | ![system.memory panel showing a live result](screenshots/live-call.png) |
 
 ## Why this exists
 
@@ -22,6 +31,14 @@ do. This project inverts that: install it, grant the permissions, and click
 through the catalog to see the actual capability each one unlocks in a real
 browser session. It's a teaching/reference tool for grading extension risk,
 not a browser extension meant for general use.
+
+The `debugger: Network capture` and `scripting: Invisible network capture`
+panels make the same point two ways: both capture full request/response
+traffic (headers, bodies, tokens) for a tab, but only the `debugger` one
+triggers Chrome's unhidable "is debugging this browser" banner. The
+`scripting` version — a permission this catalog tags Standard, not Critical
+— does the same thing with no on-screen indicator at all. The tag on a
+permission is a starting point, not the whole risk picture.
 
 ## Structure
 
@@ -47,8 +64,9 @@ not a browser extension meant for general use.
 
 - This extension intentionally requests `<all_urls>` host permissions and a
   large set of high-risk permissions (e.g. `debugger`, `webRequest`,
-  `nativeMessaging`, `management`, `cookies`). That is the point of the
-  demo — do not adapt this manifest for a real, shipped extension.
+  `scripting`, `nativeMessaging`, `management`, `cookies`). That is the
+  point of the demo — do not adapt this manifest for a real, shipped
+  extension.
 - Do not publish this to the Chrome Web Store or distribute the packed
   extension to end users.
 - See [SECURITY.md](SECURITY.md) for responsible use and disclosure notes.

