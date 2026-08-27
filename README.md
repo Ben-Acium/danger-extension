@@ -40,6 +40,9 @@ triggers Chrome's unhidable "is debugging this browser" banner. The
 — does the same thing with no on-screen indicator at all. The tag on a
 permission is a starting point, not the whole risk picture.
 
+See [PERMISSIONS.md](PERMISSIONS.md) for the full list of permissions this extension demonstrates,
+grouped by risk tier.
+
 ## Structure
 
 - `manifest.json` — Manifest V3 config declaring the full permission catalog
