@@ -87,6 +87,31 @@ h1 {
 }
 .desc { color: #4a5160; line-height: 1.5; max-width: 660px; margin-bottom: 16px; }
 
+.danger-bot {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.25;
+  color: #6fa8ff;
+  background: #1c1f24;
+  border: 1px solid #333944;
+  border-radius: 8px;
+  padding: 14px 18px;
+  max-width: 660px;
+  overflow-x: auto;
+}
+.danger-bot .danger-text {
+  color: #ff5c5c;
+  font-weight: 700;
+  animation: danger-blink 1.1s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .danger-bot .danger-text { animation: none; }
+}
+@keyframes danger-blink {
+  0%, 60% { opacity: 1; }
+  61%, 100% { opacity: 0.35; }
+}
+
 button.load {
   background: #3a5ba0;
   color: #fff;
