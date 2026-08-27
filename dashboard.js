@@ -1372,6 +1372,25 @@ for (const it of ITEMS) {
   panelsEl.appendChild(section);
 }
 
+// ---- risk scoreboard on the overview panel ----
+const scoreboardEl = document.getElementById("risk-scoreboard");
+if (scoreboardEl) {
+  const order = ["Critical", "High", "Medium", "Standard"];
+  const counts = {};
+  for (const it of ITEMS) counts[it.group] = (counts[it.group] || 0) + 1;
+  scoreboardEl.innerHTML = order
+    .filter((g) => counts[g])
+    .map(
+      (g) => `
+        <div class="score-cell">
+          <span class="risk-dot ${GROUP_CLASS[g]}"></span>
+          <span class="score-count">${counts[g]}</span>
+          <span class="score-label">${esc(g)}</span>
+        </div>`
+    )
+    .join("");
+}
+
 document.querySelectorAll(".navbtn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".navbtn").forEach((b) => b.classList.remove("active"));

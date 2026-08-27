@@ -87,6 +87,34 @@ h1 {
 }
 .desc { color: #4a5160; line-height: 1.5; max-width: 660px; margin-bottom: 16px; }
 
+.scoreboard {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.score-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  background: #fff;
+  border: 1px solid #e0e2e6;
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+.score-cell .risk-dot { align-self: center; }
+.score-count {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
+}
+.score-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
 .danger-bot {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
