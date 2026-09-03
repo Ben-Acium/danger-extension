@@ -12,9 +12,21 @@ an already-listed permission (see [Same permission, two demos](#same-permission-
 
 | Permission | What the panel demonstrates |
 |---|---|
-| `cookies` | Every cookie in the browser, for every domain — including session/auth cookies (masked by default). |
+| `cookies` | Every cookie in the browser, for every domain — including session/auth cookies (masked by default). Can combine a provider's cookies (e.g. Google, Microsoft 365) across all its domains into one view. |
 | `debugger` | Attaches Chrome DevTools Protocol to a real tab: full-page screenshot, arbitrary JS evaluation in page context, live `localStorage` keys — bypassing content-script isolation and page CSP. |
 | `webRequest` | Every outgoing request while a tab stays open, including request header names, registered with `<all_urls>`. |
+
+> **On the `cookies` panel — educational and authorized-use only.** Session/auth cookies *are* a live login.
+> Copying one into another browser is the well-known **"pass-the-cookie"** technique, which can bypass the
+> password *and* MFA because those are only checked at login, not per request. The panel can export these
+> cookies, including an **import-ready file** that loads straight into a cookie-editor extension (the export
+> shows a confirmation dialog first). Only ever use that export against accounts and systems **you own or are
+> explicitly authorized to test** — using someone else's session cookies without permission is unauthorized
+> access and illegal in most jurisdictions. The extension itself reads and displays cookies **locally only** —
+> it never replays them or sends them off-device, and performs no attack; the point is to make the danger of
+> the `cookies` permission visible. In practice, replaying a copied cookie is often defeated by modern defenses
+> (device/token binding, Entra Conditional Access, IP/device anomaly detection), so against a hardened Google
+> or Microsoft 365 tenant a raw copy is commonly rejected or re-challenged.
 
 ## High
 

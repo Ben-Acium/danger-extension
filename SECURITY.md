@@ -20,6 +20,14 @@ for end users, and not as a template for a real, shipped extension.
 - Do not point any panel at, or adapt this code for use against, systems,
   accounts, or data you do not own or do not have explicit authorization to
   test.
+- The cookies panel can export live session/auth cookies, including an
+  import-ready file for cookie-editor extensions. Moving those cookies into
+  another browser (the "pass-the-cookie" technique) can impersonate a
+  logged-in session without a password or MFA. Do this **only** for education
+  or authorized testing, and **only** against accounts and systems you own or
+  are explicitly permitted to test. Using another person's session cookies
+  without authorization is unauthorized access and illegal in most
+  jurisdictions.
 
 ## Reporting a vulnerability
 

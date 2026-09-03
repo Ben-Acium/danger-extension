@@ -75,6 +75,8 @@ body {
 .risk-tag.standard { color: #6fa8ff; background: #16233a; }
 
 #main { flex: 1; padding: 28px 40px; max-width: 920px; }
+/* The cookies table is wide (many columns); give that panel double the usual width. */
+#main:has(#cookies.active) { max-width: 1840px; }
 .panel { display: none; }
 .panel.active { display: block; }
 h1 {
@@ -208,6 +210,11 @@ th { color: #6b7280; font-weight: 600; position: relative; user-select: none; }
   z-index: 2;
 }
 .col-resize-handle:hover, .col-resize-handle.active { background: #3a5ba0; opacity: 0.5; }
+th.sortable-col { cursor: pointer; padding-right: 16px; }
+th.sortable-col:hover { color: #3a5ba0; }
+th.sortable-col::after { content: "\2195"; position: absolute; right: 6px; opacity: 0.35; font-weight: 400; }
+th.sortable-col.sort-asc::after { content: "\2191"; opacity: 1; }
+th.sortable-col.sort-desc::after { content: "\2193"; opacity: 1; }
 .err { color: #b3261e; }
 .muted { color: #8a919c; }
 .unavailable {
@@ -240,6 +247,7 @@ th { color: #6b7280; font-weight: 600; position: relative; user-select: none; }
   user-select: none;
 }
 tr.flagged { background: #fff8e6; }
+tr.provider-auth { background: #ffe3e3; }
 .flag-badge {
   display: inline-block;
   font-size: 10px;
@@ -249,6 +257,16 @@ tr.flagged { background: #fff8e6; }
   border-radius: 3px;
   padding: 1px 5px;
   margin-left: 6px;
+}
+.flag-badge.provider-badge {
+  color: #a30000;
+  background: #ffd0d0;
+  border: 1px solid #f5a3a3;
+}
+.flag-badge.tag-badge {
+  color: #1a4b8c;
+  background: #dbe8ff;
+  border: 1px solid #b7d0f5;
 }
 
 #search-box {

@@ -70,6 +70,16 @@ grouped by risk tier.
   `scripting`, `nativeMessaging`, `management`, `cookies`). That is the
   point of the demo — do not adapt this manifest for a real, shipped
   extension.
+- **Cookie export is for education and authorized testing only.** The cookies
+  panel can export live session/auth cookies, including an *import-ready* file
+  that loads directly into a cookie-editor extension. Loading those cookies
+  into another browser is the **"pass-the-cookie"** technique and can
+  impersonate a logged-in session without a password or MFA. Only ever do this
+  against accounts and systems **you own or are explicitly authorized to
+  test** — using someone else's session cookies without permission is
+  unauthorized access and illegal in most jurisdictions. The extension itself
+  only reads and displays these cookies locally and performs no replay; what
+  you do with an exported file is your responsibility.
 - Do not publish this to the Chrome Web Store or distribute the packed
   extension to end users.
 - See [SECURITY.md](SECURITY.md) for responsible use and disclosure notes.

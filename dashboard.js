@@ -10,6 +10,7 @@ function out(id, html) {
   if (!el) return;
   el.innerHTML = html;
   makeTablesResizable(el);
+  makeTablesSortable(el);
 }
 
 function errOut(id, e) {
@@ -64,6 +65,64 @@ function makeTablesResizable(container) {
   });
 }
 
+// Generic click-to-sort for every table in the dashboard. Cells are compared using their
+// `title` attribute when present (most tables put the raw value there, per esc(v) in table()
+// and the per-module renderers) and fall back to text content otherwise.
+const SORT_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}|^\d{4}-\d{2}-\d{2}/;
+
+function compareCellValues(a, b) {
+  if (a === b) return 0;
+  if (a === "") return -1;
+  if (b === "") return 1;
+  if (SORT_DATE_RE.test(a) && SORT_DATE_RE.test(b)) {
+    const da = Date.parse(a), db = Date.parse(b);
+    if (!isNaN(da) && !isNaN(db)) return da - db;
+  }
+  const na = Number(a), nb = Number(b);
+  if (a.trim() !== "" && b.trim() !== "" && !isNaN(na) && !isNaN(nb)) return na - nb;
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortTableByColumn(tableEl, headerRow, colIndex, th) {
+  const tbody = tableEl.querySelector("tbody");
+  if (!tbody) return;
+  const asc = th.dataset.sortDir !== "asc";
+  [...headerRow.cells].forEach((h) => {
+    h.classList.remove("sort-asc", "sort-desc");
+    delete h.dataset.sortDir;
+  });
+  th.dataset.sortDir = asc ? "asc" : "desc";
+  th.classList.add(asc ? "sort-asc" : "sort-desc");
+
+  const key = (row) => {
+    const cell = row.cells[colIndex];
+    if (!cell) return "";
+    const raw = cell.getAttribute("title");
+    return (raw !== null ? raw : cell.textContent).trim();
+  };
+  const rows = [...tbody.rows].sort((a, b) => {
+    const cmp = compareCellValues(key(a), key(b));
+    return asc ? cmp : -cmp;
+  });
+  rows.forEach((r) => tbody.appendChild(r));
+}
+
+function makeTablesSortable(container) {
+  container.querySelectorAll("table").forEach((tableEl) => {
+    const headerRow = tableEl.querySelector("thead tr");
+    if (!headerRow) return;
+    [...headerRow.cells].forEach((th, colIndex) => {
+      if (th.dataset.sortBound) return;
+      th.dataset.sortBound = "1";
+      th.classList.add("sortable-col");
+      th.addEventListener("click", (e) => {
+        if (e.target.classList.contains("col-resize-handle")) return;
+        sortTableByColumn(tableEl, headerRow, colIndex, th);
+      });
+    });
+  });
+}
+
 function fmtTime(ms) {
   if (!ms) return "";
   return new Date(ms).toLocaleString();
@@ -112,12 +171,19 @@ function item(group, id, label, desc, run, extraHtml) {
 
 item("Critical", "cookies", "cookies",
   `Every cookie in the browser, for every domain — including session/auth cookies. Values are masked by default.
-   Needs no per-site prompt because host access is already <code>&lt;all_urls&gt;</code>.`,
+   Needs no per-site prompt because host access is already <code>&lt;all_urls&gt;</code>.
+   <em>Educational demo only:</em> session cookies are a live login, so copying them elsewhere is the "pass-the-cookie"
+   technique that can bypass password + MFA. This panel only reads and shows them locally — it never replays or
+   transmits them, and modern defenses (device/token binding, Conditional Access) often defeat replay anyway.`,
   null,
   `<div class="row">
-     <input id="cookie-domain" type="text" placeholder="example.com (blank = active tab's domain)" />
+     <input id="cookie-domain" type="text" data-enter="cookies-domain" placeholder="google (substring match, blank = active tab's domain)" />
      <button class="load" data-load="cookies-domain">List cookies for domain</button>
      <button class="load" data-load="cookies-all">Scan all cookies (cap 300)</button>
+   </div>
+   <div class="row">
+     <button class="load" data-load="cookies-provider-google">Combine Google cookies</button>
+     <button class="load" data-load="cookies-provider-m365">Combine Microsoft 365 cookies</button>
    </div>`
 );
 
@@ -976,6 +1042,48 @@ item("Standard", "webRequestBlocking", "webRequestBlocking",
 // ---- custom multi-button loaders (referenced by extraHtml above) ----
 const AUTH_COOKIE_RE = /(sess|auth|token|jwt|^sid$|sid$|id_token|access_token|refresh_token|connect\.sid|jsessionid|__secure|__host|casdoor|okta|saml|login)/i;
 
+// Domain + known session-cookie-name rules for the two providers users most often ask about:
+// these are the literal cookies an attacker would replay to hijack a signed-in Google or
+// Microsoft 365 session (as opposed to AUTH_COOKIE_RE, which just pattern-matches names generically).
+const PROVIDER_RULES = [
+  {
+    key: "google",
+    label: "Google",
+    domainRe: /(^|\.)google\.com$/i,
+    authNameRe: /^(SID|HSID|SSID|APISID|SAPISID|LSID|NID|OSID)$|^__Secure-[13]P(SID|APISID|SIDCC|SIDTS)$/i
+  },
+  {
+    key: "m365",
+    label: "Microsoft 365",
+    domainRe: /(^|\.)(microsoftonline\.com|microsoft\.com|office\.com|office365\.com|live\.com|sharepoint\.com|outlook\.com|msftauth\.net|msauth\.net)$/i,
+    authNameRe: /^(ESTSAUTH|ESTSAUTHPERSISTENT|ESTSAUTHLIGHT|FedAuth|rtFa|buid|MSPAuth|MSPProf|MSPRequ|RPSAuth|SignInStateCookie)$/i
+  }
+];
+
+function detectProvider(c) {
+  const domain = c.domain || "";
+  for (const rule of PROVIDER_RULES) {
+    if (rule.domainRe.test(domain)) {
+      return { label: rule.label, isAuth: rule.authNameRe.test(c.name || "") };
+    }
+  }
+  return null;
+}
+
+// Combine every cookie belonging to one provider across all of its domains — e.g. an M365
+// session is spread over microsoftonline.com, office.com, sharepoint.com, outlook.com, … —
+// into one view. renderCookies() highlights the replayable auth cookies within it.
+async function loadProviderCookies(key) {
+  const rule = PROVIDER_RULES.find((r) => r.key === key);
+  if (!rule) return out("cookies", `<div class="err">Unknown provider: ${esc(key)}</div>`);
+  const all = await chrome.cookies.getAll({});
+  const matched = all.filter((c) => rule.domainRe.test(c.domain || ""));
+  const authCount = matched.filter((c) => rule.authNameRe.test(c.name || "")).length;
+  lastCookies = matched;
+  lastCookiesLabel = `Combined ${rule.label} cookies across all ${rule.label} domains — ${matched.length} cookies, ${authCount} session/auth`;
+  await renderCookies();
+}
+
 let lastCookies = [];
 let lastCookiesLabel = "";
 let revealCookies = false;
@@ -986,12 +1094,29 @@ function maskValue(value, reveal) {
   return esc(`${value.slice(0, 4)}…${value.slice(-4)} (${value.length} chars)`);
 }
 
-function downloadCookie(c) {
+// Must match cookieKey() in background.js exactly — it's the join key into the
+// cookieFirstSeen map that background.js maintains (see comment there: chrome.cookies.Cookie
+// has no real creation-date field, so that's a "first observed by this extension" timestamp).
+function cookieKey(c) {
+  return `${c.storeId} ${c.domain} ${c.path} ${c.name}`;
+}
+
+async function getCookieFirstSeenMap() {
+  try {
+    const { cookieFirstSeen } = await chrome.storage.local.get("cookieFirstSeen");
+    return cookieFirstSeen || {};
+  } catch {
+    return {};
+  }
+}
+
+function downloadCookie(c, firstSeen) {
   const record = {
     domain: c.domain, name: c.name, value: c.value, path: c.path,
     httpOnly: c.httpOnly, secure: c.secure, sameSite: c.sameSite,
     session: c.session, expirationDate: c.expirationDate ?? null,
     expires: c.session ? "session" : fmtTime(c.expirationDate * 1000),
+    firstSeenByExtension: firstSeen ? new Date(firstSeen).toISOString() : null,
     curlCookieHeader: `${c.name}=${c.value}`
   };
   const blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
@@ -1006,36 +1131,145 @@ function downloadCookie(c) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function renderCookies() {
+// Export every currently-shown cookie as one JSON file — the whole combined source in a single
+// bundle, rather than downloading each cookie individually.
+function downloadCookieBundle(cookies, firstSeenMap, label) {
+  const bundle = {
+    label,
+    exportedAt: new Date().toISOString(),
+    count: cookies.length,
+    cookies: cookies.map((c) => ({
+      domain: c.domain, name: c.name, value: c.value, path: c.path,
+      httpOnly: c.httpOnly, secure: c.secure, sameSite: c.sameSite,
+      session: c.session, expirationDate: c.expirationDate ?? null,
+      expires: c.session ? "session" : fmtTime(c.expirationDate * 1000),
+      firstSeenByExtension: firstSeenMap[cookieKey(c)] ? new Date(firstSeenMap[cookieKey(c)]).toISOString() : null,
+      curlCookieHeader: `${c.name}=${c.value}`
+    }))
+  };
+  triggerJsonDownload(`cookies_bundle_${safeName(label)}.json`, bundle);
+}
+
+// Convert a chrome.cookies.Cookie into the object shape a cookie-importer extension
+// (Cookie-Editor and friends) expects: a bare array of near-raw Chrome cookie fields, with
+// the naming/typing quirks that trip up import handled — session cookies omit expirationDate
+// entirely (a literal null makes several importers skip the row), and only the fields the
+// importer's chrome.cookies.set() call understands are emitted.
+function cookieToImportFormat(c) {
+  const o = {
+    domain: c.domain,
+    name: c.name,
+    value: c.value,
+    path: c.path,
+    secure: c.secure,
+    httpOnly: c.httpOnly,
+    sameSite: c.sameSite || "unspecified", // no_restriction | lax | strict | unspecified — all valid for cookies.set
+    hostOnly: c.hostOnly,
+    session: c.session,
+    storeId: c.storeId ?? null
+  };
+  if (!c.session && typeof c.expirationDate === "number") o.expirationDate = c.expirationDate;
+  return o;
+}
+
+// One-click, import-ready export: a bare JSON array Cookie-Editor imports directly, no hand-editing
+// or [] wrapping. Same values the other exports already expose — this only reshapes them.
+function downloadCookieImport(cookies, label) {
+  const arr = cookies.map(cookieToImportFormat);
+  triggerJsonDownload(`cookies_import_${safeName(label)}.json`, arr);
+}
+
+function safeName(s) {
+  return String(s).replace(/[^a-z0-9_.-]/gi, "_").slice(0, 60) || "cookies";
+}
+
+function triggerJsonDownload(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function renderCookies() {
   const rows = lastCookies.slice().sort((a, b) => a.domain === b.domain ? a.name.localeCompare(b.name) : a.domain.localeCompare(b.domain));
   if (!rows.length) {
     out("cookies", `<div class="muted">${esc(lastCookiesLabel)}</div><div class="muted">No cookies found.</div>`);
     return;
   }
+  const firstSeenMap = await getCookieFirstSeenMap();
   const flaggedCount = rows.filter((c) => AUTH_COOKIE_RE.test(c.name)).length;
+  const providerAuthCount = rows.filter((c) => detectProvider(c)?.isAuth).length;
   const body = rows.map((c, i) => {
     const flagged = AUTH_COOKIE_RE.test(c.name);
+    const provider = detectProvider(c);
+    const rowClass = provider?.isAuth ? "provider-auth" : flagged ? "flagged" : "";
+    const badges = [
+      provider?.isAuth ? `<span class="flag-badge provider-badge">${esc(provider.label.toUpperCase())} SESSION</span>` : "",
+      !provider?.isAuth && flagged ? '<span class="flag-badge">LIKELY AUTH</span>' : "",
+      provider && !provider.isAuth ? `<span class="flag-badge tag-badge">${esc(provider.label)}</span>` : ""
+    ].join("");
     const expires = c.session ? "session" : fmtTime(c.expirationDate * 1000);
-    return `<tr class="${flagged ? "flagged" : ""}">
+    return `<tr class="${rowClass}">
       <td title="${esc(c.domain)}">${esc(c.domain)}</td>
-      <td title="${esc(c.name)}">${esc(c.name)}${flagged ? '<span class="flag-badge">LIKELY AUTH</span>' : ""}</td>
+      <td title="${esc(c.name)}">${esc(c.name)}${badges}</td>
       <td title="${revealCookies ? esc(c.value) : "hidden — check Reveal full values"}">${maskValue(c.value, revealCookies)}</td>
       <td>${c.httpOnly}</td><td>${c.secure}</td><td title="${esc(c.sameSite)}">${esc(c.sameSite)}</td>
-      <td title="${esc(expires)}">${esc(expires)}</td><td title="${esc(c.path)}">${esc(c.path)}</td>
+      <td title="${esc(expires)}">${esc(expires)}</td>
+      <td title="${esc(c.path)}">${esc(c.path)}</td>
       <td><button type="button" class="load cookie-download" data-idx="${i}" style="margin:0;padding:4px 10px;">Download</button></td>
     </tr>`;
   }).join("");
-  out("cookies", `<div class="muted">${esc(lastCookiesLabel)} — ${rows.length} cookies, ${flaggedCount} flagged as likely auth/session
-    &nbsp;<label class="reveal-toggle" style="display:inline"><input type="checkbox" id="cookie-reveal-inline" ${revealCookies ? "checked" : ""}> Reveal full values</label></div>
+  const authTotal = providerAuthCount || flaggedCount;
+  const eduBanner = authTotal ? `<div class="unavailable">
+      ⚠ <strong>Educational demonstration — no attack is performed.</strong>
+      The ${authTotal} highlighted row${authTotal === 1 ? " is a" : "s are"} session/auth cookie${authTotal === 1 ? "" : "s"}:
+      in effect, ${authTotal === 1 ? "it <em>is</em>" : "they <em>are</em>"} the logged-in session. Copying such a cookie into a
+      different browser is the well-known <strong>"pass-the-cookie"</strong> technique — it can bypass the password
+      <em>and</em> MFA, because those are only checked at login, not on every request.
+      <br><br>
+      This panel only <strong>reads and displays</strong> these cookies on your own machine — it sends nothing off-device
+      and performs no replay. It exists to make the risk of the <code>cookies</code> permission visible, not to carry out
+      the attack. In practice, replaying a stolen cookie is often defeated by modern defenses — device/token binding,
+      Conditional Access, and IP/device anomaly checks — so against a hardened Google or Microsoft 365 tenant a raw
+      copy is commonly rejected or re-challenged.
+    </div>` : "";
+  out("cookies", eduBanner + `<div class="muted">${esc(lastCookiesLabel)} — ${rows.length} cookies, ${flaggedCount} flagged as likely auth/session, ${providerAuthCount} are known Google/Microsoft 365 session cookies</div>
+    <div class="muted"><label class="reveal-toggle" style="display:inline"><input type="checkbox" id="cookie-reveal-inline" ${revealCookies ? "checked" : ""}> Reveal full values</label></div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px;">
+      <button type="button" id="cookie-download-bundle" style="margin:0;padding:4px 10px;">Download all ${rows.length} as one bundle</button>
+      <button type="button" id="cookie-download-import" style="margin:0;padding:4px 10px;">Download import-ready (Cookie-Editor)</button>
+    </div>
     <table><thead><tr><th>Domain</th><th>Name</th><th>Value</th><th>HttpOnly</th><th>Secure</th><th>SameSite</th><th>Expires</th><th>Path</th><th>Download</th></tr></thead><tbody>${body}</tbody></table>`);
   document.getElementById("cookie-reveal-inline")?.addEventListener("change", (e) => {
     revealCookies = e.target.checked;
     renderCookies();
   });
+  document.getElementById("cookie-download-bundle")?.addEventListener("click", () => {
+    downloadCookieBundle(rows, firstSeenMap, lastCookiesLabel);
+  });
+  document.getElementById("cookie-download-import")?.addEventListener("click", () => {
+    const ok = window.confirm(
+      "EDUCATIONAL / AUTHORIZED USE ONLY\n\n" +
+      "This produces a cookie-editor–ready file containing live session/auth cookies. Loading it into " +
+      "another browser is the \"pass-the-cookie\" technique and can impersonate a logged-in session " +
+      "without a password or MFA.\n\n" +
+      "Only do this against accounts and systems you own or are explicitly authorized to test. Using " +
+      "someone else's session cookies without permission is unauthorized access and is illegal in most " +
+      "jurisdictions.\n\n" +
+      "Continue and download?"
+    );
+    if (ok) downloadCookieImport(rows, lastCookiesLabel);
+  });
   document.getElementById("out-cookies")?.querySelectorAll(".cookie-download").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      downloadCookie(rows[Number(btn.dataset.idx)]);
+      const row = rows[Number(btn.dataset.idx)];
+      downloadCookie(row, firstSeenMap[cookieKey(row)]);
     });
   });
 }
@@ -1195,17 +1429,29 @@ const customLoaders = {
       const tab = await activeTabInfo();
       try { domain = new URL(tab?.url || "").hostname; } catch { domain = ""; }
     }
-    if (!domain) return out("cookies", '<div class="err">Enter a domain, or open a normal web page as the active tab.</div>');
-    lastCookies = await chrome.cookies.getAll({ domain });
-    lastCookiesLabel = `Cookies for domain: ${domain} (includes subdomains)`;
-    renderCookies();
+    // Accept a pasted URL as well as a bare domain fragment.
+    try { domain = new URL(domain).hostname || domain; } catch { /* not a URL — use as typed */ }
+    const needle = domain.replace(/^\.+/, "").toLowerCase();
+    if (!needle) return out("cookies", '<div class="err">Enter a domain, or open a normal web page as the active tab.</div>');
+    // Substring match rather than chrome.cookies' exact domain filter, so "goog" finds google.com.
+    // Matching in both directions keeps the parent-domain cookies the exact filter used to include:
+    // searching "mail.google.com" still turns up cookies scoped to ".google.com".
+    const all = await chrome.cookies.getAll({});
+    lastCookies = all.filter((c) => {
+      const d = (c.domain || "").replace(/^\.+/, "").toLowerCase();
+      return d.includes(needle) || needle.includes(d);
+    });
+    lastCookiesLabel = `Cookies matching domain: ${needle} (substring match, includes parent domains and subdomains)`;
+    await renderCookies();
   },
   async "cookies-all"() {
     const all = await chrome.cookies.getAll({});
     lastCookies = all.slice(0, 300);
     lastCookiesLabel = `All cookies in the default cookie store (capped at 300 of ${all.length} total)`;
-    renderCookies();
+    await renderCookies();
   },
+  async "cookies-provider-google"() { await loadProviderCookies("google"); },
+  async "cookies-provider-m365"() { await loadProviderCookies("m365"); },
   async "contentsettings"() {
     let url = document.getElementById("cs-url").value.trim();
     if (!url) {
@@ -1416,6 +1662,16 @@ document.getElementById("search-box").addEventListener("input", (e) => {
     }
     sep.style.display = anyVisible ? "" : "none";
   });
+});
+
+// Enter in an input marked data-enter="<loader>" fires that loader's button, so the
+// keyboard path reuses the click handler's disabling and error reporting.
+document.body.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const key = e.target.closest("input[data-enter]")?.dataset.enter;
+  if (!key) return;
+  e.preventDefault();
+  document.querySelector(`.load[data-load="${key}"]`)?.click();
 });
 
 document.body.addEventListener("click", async (e) => {
